@@ -12,3 +12,7 @@
 *.la
 *.a
 *.*~
+./hand
+./train
+*.png
+*/*.png
