@@ -13,6 +13,8 @@
 *.a
 *.*~
 ./hand
-./train
+train*
 *.png
 */*.png
+*#*
+*.xml
