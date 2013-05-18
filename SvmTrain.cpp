@@ -4,8 +4,20 @@
 #include<highgui.h>
 #include<ml.h>
 #include<vector>
+
 using namespace std;
 using namespace cv;
+
+class Message
+{
+public:
+  int id;
+  IplImage img;
+  Message(IplImage img)
+  {
+    this->img = img;
+  }
+};
 
 class SvmTrain
 {
@@ -55,7 +67,9 @@ private:
   //鼠标回调事件
   static void mouseCallback( int event, int x, int y, int flags, void* param );
   //绘制矩形框
-  void drawBox();
+  void getRoi();
+  //采取数据
+  void collectData(IplImage* ROi);
   //开始训练
   void process_Train();
   //清理垃圾
@@ -161,12 +175,12 @@ void SvmTrain::mouseCallback( int event, int x, int y, int flags, void* param )
 	  box.height *= -1;
 	}
       //st.loadSampleFromFile();
-      st.drawBox();
+      st.getRoi();
         break;
     }
 }
 //绘制截图
-void SvmTrain::drawBox()
+void SvmTrain::getRoi()
 {
   if( box.width==0||box.height==0)return;
   //只保留感兴趣图像部分
@@ -179,6 +193,10 @@ void SvmTrain::drawBox()
   //cvSetImageROI(tmp,box);
   cout<<src->width<<"  "<<tmp->width<<endl;
   //cvRectangle(tmp,cvPoint(box.x,box.y),cvPoint(box.x+box.width,box.y+box.height),cvScalar(0,255,0));
+  collectData(tmp);
+}
+void SvmTrain::collectData(IplImage* ROi)
+{
   cvShowImage( "block", tmp );
   cvResize(tmp,trainImg);
   hog->compute(trainImg, res,Size(1,1), Size(0,0)); 

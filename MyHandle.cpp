@@ -4,12 +4,23 @@
 #include<ml.h>
 #include<linux/input.h>
 #include<fcntl.h>
+#include<sys/types.h>
+#include<sys/stat.h>
+
 //宏定义
+#define FIFO_NAME "/tmp/opencv/fifo"
 //手势数量
 const int TNUM = 10;
 
 using namespace std;
 using namespace cv;
+
+class Message
+{
+public:
+  int id;
+  IplImage *img;
+};
 
 class MyHandle
 {
@@ -32,9 +43,13 @@ private:
   void Handle_Clear();
   //利用svm训练后的数据进行判断
   void Handle_SVM();
+  //创建管道，为进程通信准备
+  void Handle_Pipe();
   //Attributes
   CvCapture *capture;
   IplImage* src;
+  //目标
+  IplImage* Roi;
   CvSize size;
   CvSeq *handT;
   CvPoint pCenter,cCenter;
@@ -46,6 +61,8 @@ private:
   CvSVM svm;
   //边界
   CvRect bound;
+  //进程消息
+  Message msg;
 };
 MyHandle::MyHandle(int camIndex)
 {
@@ -101,6 +118,8 @@ void MyHandle::Init_Windows()
   cvCreateTrackbar( "SL", "tmp", &threshold_Min[1], 255, NULL );
   cvCreateTrackbar( "SH", "tmp", &threshold_Max[1], 255, NULL );
   cvResizeWindow( "tmp", size.width/2, size.height*1.5/2 );
+  cvNamedWindow("block", 0 );
+  cvMoveWindow( "block", 0, 750 );
 }
 void MyHandle::Handle_HSV()
 {
@@ -134,8 +153,23 @@ void MyHandle::Handle_HSV()
 }
 void MyHandle::Handle_SVM()
 { 
+  if(cvWaitKey(20)>0)
+    {
+      //获取感兴趣的部分
+      Roi = cvCreateImageHeader(cvSize(bound.width+20,bound.height+20),src->depth,src->nChannels);
+      Roi->origin = src->origin;
+      Roi->widthStep = src->widthStep;
+      Roi->imageData = src->imageData + (bound.y - 10)*src->widthStep + ( bound.x -10 )*src->nChannels;
+      cvShowImage( "block", Roi );
+      //进程通信，发送到训练进程去
+      msg.img = Roi;
+    }
   //绘制
   cvRectangle(src,cvPoint(bound.x-3,bound.y-3),cvPoint(bound.x+3+bound.width,bound.y+bound.height+3),cvScalar(0,0,255,0),6,8,0);
+  Message msg();
+}
+void MyHandle::Handle_Pipe()
+{
   
 }
 void MyHandle::Handle_Contours(IplImage *img)
