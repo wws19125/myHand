@@ -1,6 +1,7 @@
 #include<iostream>
 #include<cv.h>
 #include<highgui.h>
+#include<ml.h>
 #include<linux/input.h>
 #include<fcntl.h>
 //宏定义
@@ -23,9 +24,14 @@ private:
   void Handle_HSV_Threshold();
   void Handle_Contours( IplImage *img );
   void Handle_Template();
+  //模板载入
   void Handle_Template_Load();
+  //模拟鼠标事件
   void Handle_Moving();
+  //程序善后工作
   void Handle_Clear();
+  //利用svm训练后的数据进行判断
+  void Handle_SVM();
   //Attributes
   CvCapture *capture;
   IplImage* src;
@@ -34,8 +40,12 @@ private:
   CvPoint pCenter,cCenter;
   int threshold_Min[3],threshold_Max[3],fd,flag;
   char *Num[10];
+  //鼠标事件结构数组
   struct input_event event,event_end;
-  
+  //svm识别分类
+  CvSVM svm;
+  //边界
+  CvRect bound;
 };
 MyHandle::MyHandle(int camIndex)
 {
@@ -50,6 +60,10 @@ int MyHandle::Init_Cam(int camIndex)
 }
 void MyHandle::Handle_Capture()
 {
+  //svm训练
+  svm = CvSVM();
+  //载入训练文件
+  svm.load("thand.xml");
   src = cvQueryFrame( capture );
   size = cvGetSize( src );
   for( int i = 0; i < 3; i++ )
@@ -118,6 +132,12 @@ void MyHandle::Handle_HSV()
   cvReleaseImage( &tH );
   cvReleaseImage( &dst );
 }
+void MyHandle::Handle_SVM()
+{ 
+  //绘制
+  cvRectangle(src,cvPoint(bound.x-3,bound.y-3),cvPoint(bound.x+3+bound.width,bound.y+bound.height+3),cvScalar(0,0,255,0),6,8,0);
+  
+}
 void MyHandle::Handle_Contours(IplImage *img)
 {
   CvMemStorage *storage;
@@ -127,15 +147,19 @@ void MyHandle::Handle_Contours(IplImage *img)
   storage = cvCreateMemStorage( 0 );
   cvFindContours( img, storage, &contours, sizeof(CvContour), CV_RETR_EXTERNAL );
   float imgArea = size.height * size.width;
-  CvRect bound;
   for( ;contours != NULL; contours = contours->h_next )
     {
       //decrese the zone by area
       if(fabs( cvContourArea( contours, CV_WHOLE_SEQ ) )/imgArea < 0.02||fabs( cvContourArea( contours, CV_WHOLE_SEQ ) )/imgArea > 0.3  )continue;
-      //cvDrawContours( src, contours, cvScalar(255,150, 100, 0 ), cvScalar( 255, 0, 0, 0 ), 1, 3, 8, cvPoint( 0, 0 ) );
-      //decrese the zone by position
+      //decrese the zone by position,除去边缘图像
       bound = cvBoundingRect( contours, 0 );
-      if(bound.x <= 7 || bound.y <= 7 || bound.x + bound.width >= size.width-6 || bound.y + bound.height >= size.height-6 )continue;
+      if(bound.x <= 7 || bound.y <= 7 || bound.x + bound.width >= size.width-6 || bound.y + bound.height >= size.height-6 )continue;      
+      //绘制轮廓
+      cvDrawContours( src, contours, cvScalar(255,150, 100, 0 ), cvScalar( 255, 0, 0, 0 ), 1, 3, 8, cvPoint( 0, 0 ) );
+      //采用svm训练数据进行识别
+      Handle_SVM();
+      return;
+      //下面采用非训练算法，模板匹配
       if( handT == NULL )
 	{
 	  cout<< "handT == NULL "<<endl;
@@ -145,7 +169,7 @@ void MyHandle::Handle_Contours(IplImage *img)
       for( tmp = handT; tmp; tmp = tmp->h_prev, j++ )
 	{
 	  tm = cvMatchShapes( tmp, contours, CV_CONTOURS_MATCH_I1, 0 );
-	  //get the smallest
+	  //get the smallest,系数越小越接近
 	  if( tm < match)
 	    {
 	      match = tm;
