@@ -8,7 +8,7 @@
 #include<sys/stat.h>
 
 //宏定义
-#define FIFO_NAME "/tmp/opencv/fifo"
+#define FIFO_NAME "/tmp/opencv_fifo"
 //手势数量
 const int TNUM = 10;
 
@@ -63,6 +63,8 @@ private:
   CvRect bound;
   //进程消息
   Message msg;
+  //pipe flag
+  int pFlag;
 };
 MyHandle::MyHandle(int camIndex)
 {
@@ -77,6 +79,13 @@ int MyHandle::Init_Cam(int camIndex)
 }
 void MyHandle::Handle_Capture()
 {
+  if(access(FIFO_NAME,F_OK)==-1)
+    {
+      if((pFlag=mkfifo(FIFO_NAME,0777))== 0)
+	cout<<"make new pipe ok"<<endl;
+      else
+	cout<<"make pipe error,could not train!"<<endl;
+    }
   //svm训练
   svm = CvSVM();
   //载入训练文件
@@ -153,7 +162,8 @@ void MyHandle::Handle_HSV()
 }
 void MyHandle::Handle_SVM()
 { 
-  if(cvWaitKey(20)>0)
+  // s 按键
+  if(cvWaitKey(20) == 115)
     {
       //获取感兴趣的部分
       Roi = cvCreateImageHeader(cvSize(bound.width+20,bound.height+20),src->depth,src->nChannels);
@@ -162,7 +172,8 @@ void MyHandle::Handle_SVM()
       Roi->imageData = src->imageData + (bound.y - 10)*src->widthStep + ( bound.x -10 )*src->nChannels;
       cvShowImage( "block", Roi );
       //进程通信，发送到训练进程去
-      msg.img = Roi;
+      //msg.img = Roi;
+      //Handle_Pipe();
     }
   //绘制
   cvRectangle(src,cvPoint(bound.x-3,bound.y-3),cvPoint(bound.x+3+bound.width,bound.y+bound.height+3),cvScalar(0,0,255,0),6,8,0);
@@ -170,7 +181,8 @@ void MyHandle::Handle_SVM()
 }
 void MyHandle::Handle_Pipe()
 {
-  
+  if((pFlag = open(FIFO_NAME,O_WRONLY))==-1)return;
+  cout<<"------"<< write(pFlag,src,src->nSize) <<endl;
 }
 void MyHandle::Handle_Contours(IplImage *img)
 {
@@ -296,7 +308,7 @@ void MyHandle::Handle_Moving()
     }
   if( !flag )
     {
-      cout<< "Not The Moving Flag "<< endl;
+      //cout<< "Not The Moving Flag "<< endl;
       pCenter = cCenter;
       return;
     }
