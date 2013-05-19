@@ -6,6 +6,7 @@
 #include<fcntl.h>
 #include<sys/types.h>
 #include<sys/stat.h>
+#include<vector>
 
 //宏定义
 #define FIFO_NAME "/tmp/opencv_fifo"
@@ -14,13 +15,6 @@ const int TNUM = 10;
 
 using namespace std;
 using namespace cv;
-
-class Message
-{
-public:
-  int id;
-  IplImage *img;
-};
 
 class MyHandle
 {
@@ -45,26 +39,39 @@ private:
   void Handle_SVM();
   //创建管道，为进程通信准备
   void Handle_Pipe();
+  //获取训练数据
+  void Handle_Collection();
+  //训练
+  void Handle_Train();
+  //预测
+  void Handle_Predict();
   //Attributes
   CvCapture *capture;
   IplImage* src;
   //目标
   IplImage* Roi;
+  IplImage *trainImg;
   CvSize size;
   CvSeq *handT;
   CvPoint pCenter,cCenter;
   int threshold_Min[3],threshold_Max[3],fd,flag;
   char *Num[10];
+  //边界
+  CvRect bound;
   //鼠标事件结构数组
   struct input_event event,event_end;
   //svm识别分类
   CvSVM svm;
-  //边界
-  CvRect bound;
-  //进程消息
-  Message msg;
-  //pipe flag
-  int pFlag;
+  CvSVMParams param;
+  CvTermCriteria criteria;
+
+  vector<float> res;
+  HOGDescriptor *hog;
+  vector<int> cat_res;
+  vector<float> t_hog;
+  CvMat *data_mat,*res_mat;
+  //训练分类，训练数量
+  int pClass,pNum;
 };
 MyHandle::MyHandle(int camIndex)
 {
@@ -79,17 +86,17 @@ int MyHandle::Init_Cam(int camIndex)
 }
 void MyHandle::Handle_Capture()
 {
-  if(access(FIFO_NAME,F_OK)==-1)
-    {
-      if((pFlag=mkfifo(FIFO_NAME,0777))== 0)
-	cout<<"make new pipe ok"<<endl;
-      else
-	cout<<"make pipe error,could not train!"<<endl;
-    }
+  pClass = 0;
+  pNum = 0;
+  trainImg = cvCreateImage(cvSize(64,64),8,3);
+  hog = new HOGDescriptor(cvSize(64,64),cvSize(16,16),cvSize(8,8),cvSize(8,8),9);
   //svm训练
   svm = CvSVM();
+  criteria = cvTermCriteria( CV_TERMCRIT_EPS, 1000, FLT_EPSILON );      
+  param = CvSVMParams( CvSVM::C_SVC, CvSVM::RBF, 10.0, 0.09, 1.0, 10.0, 0.5, 1.0, NULL, criteria );
+
   //载入训练文件
-  svm.load("thand.xml");
+  //svm.load("thand.xml");
   src = cvQueryFrame( capture );
   size = cvGetSize( src );
   for( int i = 0; i < 3; i++ )
@@ -129,6 +136,7 @@ void MyHandle::Init_Windows()
   cvResizeWindow( "tmp", size.width/2, size.height*1.5/2 );
   cvNamedWindow("block", 0 );
   cvMoveWindow( "block", 0, 750 );
+  cvCreateTrackbar( "pClass", "block", &pClass, 8, NULL );
 }
 void MyHandle::Handle_HSV()
 {
@@ -162,27 +170,104 @@ void MyHandle::Handle_HSV()
 }
 void MyHandle::Handle_SVM()
 { 
+  //获取感兴趣的部分
+  Roi = cvCreateImageHeader(cvSize(bound.width+20,bound.height+20),src->depth,src->nChannels);
+  Roi->origin = src->origin;
+  Roi->widthStep = src->widthStep;
+  Roi->imageData = src->imageData + (bound.y - 10)*src->widthStep + ( bound.x -10 )*src->nChannels;
+  cvShowImage( "block", Roi );
   // s 按键
-  if(cvWaitKey(20) == 115)
+  if(cvWaitKey(10) == 115)
     {
-      //获取感兴趣的部分
-      Roi = cvCreateImageHeader(cvSize(bound.width+20,bound.height+20),src->depth,src->nChannels);
-      Roi->origin = src->origin;
-      Roi->widthStep = src->widthStep;
-      Roi->imageData = src->imageData + (bound.y - 10)*src->widthStep + ( bound.x -10 )*src->nChannels;
-      cvShowImage( "block", Roi );
       //进程通信，发送到训练进程去
       //msg.img = Roi;
       //Handle_Pipe();
+      Handle_Collection();
     }
+  else
+    //检测
+    Handle_Predict();
   //绘制
   cvRectangle(src,cvPoint(bound.x-3,bound.y-3),cvPoint(bound.x+3+bound.width,bound.y+bound.height+3),cvScalar(0,0,255,0),6,8,0);
-  Message msg();
+ }
+void MyHandle::Handle_Collection()
+{
+  cvShowImage( "block", Roi );
+  if(cvWaitKey(0)==111)
+    {
+      cvResize( Roi, trainImg);
+      hog->compute( trainImg,res,Size(1,1),Size(0,0));
+      for(vector<float>::iterator item = res.begin();item != res.end(); item++)
+	{
+	  t_hog.push_back(*item);
+	}
+      cat_res.push_back(pClass);
+      cvReleaseImage( &Roi );
+      cout<<res.size()<<"  HOG"<<endl;
+      cout<<"the num is "<< ++pNum <<endl;
+      cout<<"the class "<<pClass<<endl;
+      Handle_Train();
+    }
+}
+void MyHandle::Handle_Train()
+{
+  if(cat_res.size()==1)return;
+  data_mat = cvCreateMat(pNum,1764,CV_32FC1);
+  res_mat = cvCreateMat(pNum,1,CV_32FC1);
+  //cvInitMatHeader (&res_mat, all_imnum, 1, CV_32SC1, res);
+  cvSetZero( res_mat );
+  cvSetZero( data_mat );
+  int t,i;
+  t=0;
+  i=0;
+  for( vector<float>::iterator it  = t_hog.begin(); it != t_hog.end(); it++ )
+    {
+      cvmSet( data_mat, t, i, *it );
+      if( ++i == 1764 )
+	{
+	  t++;
+	  i=0;
+	}
+    }
+  for( i = 0; i < cat_res.size(); i++ )
+    {
+      cout<<cat_res[i]<<endl;
+      cvmSet( res_mat, i, 0, cat_res[i] ); 
+    }
+  cout<<"start to trainning"<<endl;
+  svm.train(data_mat,res_mat,NULL,NULL,param);
+  svm.save("thand.xml");
+}
+void MyHandle::Handle_Predict()
+{
+  svm.load("thand.xml");
+  cvZero(trainImg);
+  cvResize(Roi,trainImg);
+  vector<float> pres;
+  hog->compute(trainImg, pres,Size(1,1), Size(0,0)); 
+  CvMat* SVMtrainMat=cvCreateMat(1,pres.size(),CV_32FC1); 
+  int n=0;    
+  for(vector<float>::iterator iter=pres.begin();iter!=pres.end();iter++)    
+    {    
+      cvmSet(SVMtrainMat,0,n,*iter);    
+      n++;    
+    }
+  //预测结果
+  n=svm.predict(SVMtrainMat);
+  cout<<"===================="<<n<<endl;
+  return;
+  //绘制文字
+  CvFont *font;//外阴影
+  char c = '0'+n;
+  cvInitFont(font,CV_FONT_HERSHEY_SIMPLEX,1.0f,1.0f,0,5,8);
+  cvPutText(src, &c, cvPoint(bound.x, bound.y), font, CV_RGB(255,255,255));		
+  //内颜色
+  cvInitFont(font,CV_FONT_HERSHEY_SIMPLEX,1.0f,1.0f,0,2,8);
+  cvPutText(src, &c, cvPoint(bound.x, bound.y), font, CV_RGB(255,0,0));
 }
 void MyHandle::Handle_Pipe()
 {
-  if((pFlag = open(FIFO_NAME,O_WRONLY))==-1)return;
-  cout<<"------"<< write(pFlag,src,src->nSize) <<endl;
+ 
 }
 void MyHandle::Handle_Contours(IplImage *img)
 {
