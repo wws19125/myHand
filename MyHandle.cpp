@@ -17,7 +17,7 @@
 #define Mouse_Event "/dev/input/event12"
 //手势模板数量
 const int TNUM = 10;
-
+const char* ENAME[9] = { "grap","moving","null","null","null","null","click","zoom+","zoom-" };
 using namespace std;
 using namespace cv;
 
@@ -82,6 +82,8 @@ private:
   char *Num[10];
   //边界
   CvRect bound;
+  //绘制文字
+  CvFont font;
   //记录次数
   int eNum[4];
   //鼠标事件结构数组
@@ -106,7 +108,6 @@ void MyHandle::Handle_CZero(int index)
       continue;
     else
       eNum[i] =0;
-  cout<<"*************************"<<eNum[1]<<endl;
 }
 MyHandle::MyHandle(int camIndex)
 {
@@ -297,14 +298,6 @@ void MyHandle::Handle_Predict()
   //预测结果
   Handle_Guesture(svm.predict(SVMtrainMat));
   return;
-  //绘制文字
-  CvFont *font;//外阴影
-  char c = '0'+n;
-  cvInitFont(font,CV_FONT_HERSHEY_SIMPLEX,1.0f,1.0f,0,5,8);
-  cvPutText(src, &c, cvPoint(bound.x, bound.y), font, CV_RGB(255,255,255));		
-  //内颜色
-  cvInitFont(font,CV_FONT_HERSHEY_SIMPLEX,1.0f,1.0f,0,2,8);
-  cvPutText(src, &c, cvPoint(bound.x, bound.y), font, CV_RGB(255,0,0));
 }
 //处理手势,需要使用系统文件，此处不可以移植到其他平台
 void MyHandle::Handle_Guesture(int Guesture)
@@ -330,7 +323,13 @@ void MyHandle::Handle_Guesture(int Guesture)
     7 合拢手指     放大
     8 分开手指     缩小
   */ 
-  cout<<"the Guesture is "<<Guesture<<endl;
+  cout<<"the Guesture is "<<Guesture<<"  "<<ENAME[Guesture]<<endl;
+  //绘制文字
+  cvInitFont(&font,CV_FONT_HERSHEY_SIMPLEX,1.0f,1.0f,0,5,8);
+  cvPutText(src, ENAME[Guesture], cvPoint(bound.x, bound.y-10), &font, CV_RGB(255,255,255));		
+  //内颜色
+  cvInitFont(&font,CV_FONT_HERSHEY_SIMPLEX,1.0f,1.0f,0,2,8);
+  cvPutText(src, ENAME[Guesture], cvPoint(bound.x, bound.y-10), &font, CV_RGB(255,0,0));
   switch(Guesture)
     {
     case 0:
@@ -362,13 +361,13 @@ void MyHandle::Handle_Guesture(int Guesture)
       if(offset[0]>110||offset[1]>110)
 	{
 	  cout<<"================================space"<<endl;
-	  Handle_Simulate_key( k_fd, EV_KEY,KEY_SPACE,1);
+	  Handle_Simulate_key( k_fd, EV_KEY,KEY_BACKSPACE,1);
 	}
       else
 	if(offset[0]<-110||offset[1]<-110)
 	  {
 	    cout<<"==============================backspace"<<endl;
-	    Handle_Simulate_key( k_fd, EV_KEY,KEY_BACKSPACE,1);
+	    Handle_Simulate_key( k_fd, EV_KEY,KEY_SPACE,1);
 	  }
       return;
     case 6:
@@ -531,12 +530,12 @@ void MyHandle::Handle_Contours(IplImage *img)
       //draw the outer frame
       cvRectangle(src,cvPoint(bound.x,bound.y),cvPoint(bound.x+bound.width,bound.y+bound.height),cvScalar(0,0,255,0),6,8,0);
       //绘制文字
-      CvFont *font;//外阴影
-      cvInitFont(font,CV_FONT_HERSHEY_SIMPLEX,1.0f,1.0f,0,5,8);
-      cvPutText(src, Num[((int)t-1)], cvPoint(bound.x, bound.y), font, CV_RGB(255,255,255));		
+      //CvFont *font;//外阴影
+      cvInitFont(&font,CV_FONT_HERSHEY_SIMPLEX,1.0f,1.0f,0,5,8);
+      cvPutText(src, Num[((int)t-1)], cvPoint(bound.x, bound.y), &font, CV_RGB(255,255,255));		
       //内颜色
-      cvInitFont(font,CV_FONT_HERSHEY_SIMPLEX,1.0f,1.0f,0,2,8);
-      cvPutText(src, Num[((int)t-1)], cvPoint(bound.x, bound.y), font, CV_RGB(255,0,0));
+      cvInitFont(&font,CV_FONT_HERSHEY_SIMPLEX,1.0f,1.0f,0,2,8);
+      cvPutText(src, Num[((int)t-1)], cvPoint(bound.x, bound.y), &font, CV_RGB(255,0,0));
       //the flag of moving
       //cout<<"++++++++++++++++++"<<t<<endl;
       if( ((int)t - 5 == 0 ) || ( (int)t - 8 == 0 ) )
