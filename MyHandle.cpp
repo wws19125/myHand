@@ -7,10 +7,15 @@
 #include<sys/types.h>
 #include<sys/stat.h>
 #include<vector>
-
+#include<pthread.h>
+#include<stdio.h>
 //宏定义
 #define FIFO_NAME "/tmp/opencv_fifo"
-//手势数量
+//键盘事件
+#define Key_Event "/dev/input/event3"
+//鼠标事件
+#define Mouse_Event "/dev/input/event12"
+//手势模板数量
 const int TNUM = 10;
 
 using namespace std;
@@ -45,6 +50,18 @@ private:
   void Handle_Train();
   //预测
   void Handle_Predict();
+  //处理手势
+  void Handle_Guesture(int Guesture);
+  //模拟按键
+  void Handle_Simulate_key(int file, int keytype, unsigned int keycode, int keyvalue);
+  //ctrl
+  void Handle_Simulate_Ctrl_key(int file,int keytype,unsigned int keycode);
+  //计算偏移
+  void Handle_Offset();
+  //模拟鼠标
+  void Handle_Simulate_Mouse();
+
+
   //Attributes
   CvCapture *capture;
   IplImage* src;
@@ -53,8 +70,11 @@ private:
   IplImage *trainImg;
   CvSize size;
   CvSeq *handT;
+  //记录的移动点
   CvPoint pCenter,cCenter;
-  int threshold_Min[3],threshold_Max[3],fd,flag;
+  //偏移
+  int offset[2];
+  int threshold_Min[3],threshold_Max[3],fd,flag,k_fd;
   char *Num[10];
   //边界
   CvRect bound;
@@ -64,7 +84,7 @@ private:
   CvSVM svm;
   CvSVMParams param;
   CvTermCriteria criteria;
-
+  //训练用
   vector<float> res;
   HOGDescriptor *hog;
   vector<int> cat_res;
@@ -107,11 +127,16 @@ void MyHandle::Handle_Capture()
   memset(&event, 0, sizeof( event ) );
   memset( &event_end, 0, sizeof( event_end ) );
   pCenter = cvPoint( 0, 0 );
-  fd = open("/dev/input/event6", O_RDWR );
+  fd = open(Mouse_Event, O_RDWR );
+  k_fd = open(Key_Event,O_RDWR);
   //gettimeofday( &event.time, NULL );
-  //根据实际
+  //根据实际,此处判断
   threshold_Max[0] = 20;
   Init_Windows();
+  //初始化记录点
+  cCenter = cvPoint(0,0);
+  pCenter = cvPoint(0,0);
+  //加载模板
   Handle_Template_Load();
   while(1)
     {
@@ -253,8 +278,7 @@ void MyHandle::Handle_Predict()
       n++;    
     }
   //预测结果
-  n=svm.predict(SVMtrainMat);
-  cout<<"===================="<<n<<endl;
+  Handle_Guesture(svm.predict(SVMtrainMat));
   return;
   //绘制文字
   CvFont *font;//外阴影
@@ -265,6 +289,122 @@ void MyHandle::Handle_Predict()
   cvInitFont(font,CV_FONT_HERSHEY_SIMPLEX,1.0f,1.0f,0,2,8);
   cvPutText(src, &c, cvPoint(bound.x, bound.y), font, CV_RGB(255,0,0));
 }
+//处理手势,需要使用系统文件，此处不可以移植到其他平台
+void MyHandle::Handle_Guesture(int Guesture)
+{
+  Handle_Offset();
+  /*
+    Guesture
+    0 握拳        移动
+    1 一根手指     鼠标
+    2 两根手指     -1
+    3 三根手指     -1
+    4 四根手指     -1
+    5 五根手指     backspace/space
+    6 弯曲手指     点击
+    7 合拢手指     放大
+    8 分开手指     缩小
+  */ 
+  cout<<"the Guesture is "<<Guesture<<endl;
+  switch(Guesture)
+    {
+    case 0:
+      
+      return;
+    case 1:
+      if(fd == -1 )
+	{
+	  cout<<"please check you mouse event"<<endl;
+	  return;
+	}
+      Handle_Simulate_Mouse();      
+      //更新记录点
+      pCenter = cCenter;
+      return;
+    case 2:
+      return;
+    case 3:
+      return;
+    case 4:
+      return;
+    case 5:
+      //打开失败
+      if(k_fd==-1)
+	{
+	  cout<<"please check you device"<<endl;
+	  return;
+	}
+      if(offset[0]>110||offset[1]>110)
+	{
+	  cout<<"================================space"<<endl;
+	  Handle_Simulate_key( k_fd, EV_KEY,KEY_SPACE,1);
+	}
+      else
+	if(offset[0]<-110||offset[1]<-110)
+	  {
+	    cout<<"==============================backspace"<<endl;
+	    Handle_Simulate_key( k_fd, EV_KEY,KEY_BACKSPACE,1);
+	  }
+      return;
+    case 6:
+      //限制点击次数
+      //if(++cNum[6]>=3)
+      //{
+      //  cout<<"==========================limit click"<<endl;
+      //  return;
+      //}
+      if(fd == -1 )
+	{
+	  cout <<"please check you device"<<endl;
+	  return;
+	}
+      Handle_Simulate_key( fd,EV_KEY, BTN_LEFT, 1 );
+      //延时用于处理双击
+      usleep(50000);
+      return;
+    case 7:
+      
+      return;
+    case 8:
+      return;
+    }
+  //更新记录点
+  pCenter = cCenter;
+}
+//模拟按键
+void MyHandle::Handle_Simulate_key(int file, int keytype,unsigned int keycode, int keyvalue)
+{
+  event.type = keytype;
+  event.code = keycode;
+  event.value = keyvalue;
+  gettimeofday(&event.time,0);
+  write(file,&event,sizeof(event));
+  memset(&event, 0, sizeof(event));
+  gettimeofday(&event.time,0);
+  event.type = keytype;
+  event.code = keycode;
+  event.value = 0;
+  write(file,&event,sizeof(event));
+  event.type = EV_SYN;
+  event.code = SYN_REPORT;
+  event.value = 0;
+  write(file,&event,sizeof(event));
+}
+void MyHandle::Handle_Simulate_Ctrl_key(int file,int keytype,unsigned int keycode)
+{
+}
+//模拟鼠标
+void MyHandle::Handle_Simulate_Mouse()
+{
+  //cout<<"Moving the mouse"<<endl;
+  //处理抖动
+  if(offset[0]==offset[1]==1)return;
+  //移动鼠标
+  Handle_Simulate_key( fd, EV_REL, REL_X, abs(offset[0]>6 ? -7 : 1-abs(offset[0]) )*offset[0] );
+  Handle_Simulate_key( fd, EV_REL, REL_Y, abs(offset[1]>5 ? 5 : 1 )*offset[1] );
+  
+}
+//进程通信(暂时废弃)
 void MyHandle::Handle_Pipe()
 {
  
@@ -445,13 +585,26 @@ void MyHandle::Handle_Moving()
     pCenter = cCenter;
   flag = 0;
 }
+void MyHandle::Handle_Offset()
+{  
+  //get the current position
+  cCenter = cvPoint(bound.x, bound.y + bound.height );
+  // x
+  offset[0] = cCenter.x - pCenter.x;
+  // y
+  offset[1] = cCenter.y - pCenter.y;
+}
 void MyHandle::Handle_Clear()
 {
-  cvDestroyWindow("video");
+  destroyAllWindows();
+  //cvDestroyWindow("video");
   cvReleaseCapture( &capture );
   cvReleaseImage( &src );
+  cvReleaseImage( &Roi );
+  cvReleaseImage( &trainImg );
   //close the file
   close( fd );
+  close( k_fd );
 }
 int main(int argc,char** argv)
 {

@@ -5,7 +5,7 @@ CC = g++
 #INCLUDE = .
 #Cflags
 CONFIG = `pkg-config --cflags opencv --libs opencv`
-handDetection: SVMTrain MyHandle
+handDetection: MyHandle
 
 MyHandle: MyHandle.cpp
 	$(CC) $(CONFIG)  MyHandle.cpp -o hand
