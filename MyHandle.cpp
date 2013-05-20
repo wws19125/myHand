@@ -55,13 +55,17 @@ private:
   //模拟按键
   void Handle_Simulate_key(int file, int keytype, unsigned int keycode, int keyvalue);
   //ctrl
-  void Handle_Simulate_Ctrl_key(int file,int keytype,unsigned int keycode);
+  void Handle_Simulate_Ctrl_key(unsigned int keycode);
   //计算偏移
   void Handle_Offset();
   //模拟鼠标
   void Handle_Simulate_Mouse();
-
-
+  //模拟抓取移动
+  void Handle_Simulate_Mouse_Grab();
+  //清除操作记录次数
+  void Handle_CZero(int index);
+  //模拟按键按下动作
+  void Handle_Simulate_KeyDown(int file, int keytype,unsigned int keycode, int keyvalue);
   //Attributes
   CvCapture *capture;
   IplImage* src;
@@ -78,6 +82,8 @@ private:
   char *Num[10];
   //边界
   CvRect bound;
+  //记录次数
+  int eNum[4];
   //鼠标事件结构数组
   struct input_event event,event_end;
   //svm识别分类
@@ -93,6 +99,15 @@ private:
   //训练分类，训练数量
   int pClass,pNum;
 };
+void MyHandle::Handle_CZero(int index)
+{  
+  for(int i=0;i<4;i++)
+    if(index==i)
+      continue;
+    else
+      eNum[i] =0;
+  cout<<"*************************"<<eNum[1]<<endl;
+}
 MyHandle::MyHandle(int camIndex)
 {
   if(Init_Cam(camIndex))
@@ -106,6 +121,8 @@ int MyHandle::Init_Cam(int camIndex)
 }
 void MyHandle::Handle_Capture()
 {
+  //清零
+  Handle_CZero(-1);
   pClass = 0;
   pNum = 0;
   trainImg = cvCreateImage(cvSize(64,64),8,3);
@@ -292,6 +309,14 @@ void MyHandle::Handle_Predict()
 //处理手势,需要使用系统文件，此处不可以移植到其他平台
 void MyHandle::Handle_Guesture(int Guesture)
 {
+  //清除拖动标志
+  if(Guesture>0)
+    {
+      eNum[3] = 0;
+      Handle_Simulate_key( fd,EV_KEY, BTN_LEFT, 0 );
+    }
+  
+  Handle_CZero( Guesture - 6 );
   Handle_Offset();
   /*
     Guesture
@@ -309,7 +334,7 @@ void MyHandle::Handle_Guesture(int Guesture)
   switch(Guesture)
     {
     case 0:
-      
+      Handle_Simulate_Mouse_Grab();
       return;
     case 1:
       if(fd == -1 )
@@ -348,11 +373,11 @@ void MyHandle::Handle_Guesture(int Guesture)
       return;
     case 6:
       //限制点击次数
-      //if(++cNum[6]>=3)
-      //{
-      //  cout<<"==========================limit click"<<endl;
-      //  return;
-      //}
+      if(++eNum[0]>=3)
+      {
+        cout<<"==========================limit click"<<endl;
+        return;
+      }
       if(fd == -1 )
 	{
 	  cout <<"please check you device"<<endl;
@@ -363,13 +388,17 @@ void MyHandle::Handle_Guesture(int Guesture)
       usleep(50000);
       return;
     case 7:
-      
+      if(++eNum[1]>=2)return;
+      Handle_Simulate_Ctrl_key(KEY_EQUAL);
+      usleep(200000);
       return;
     case 8:
+      if(++eNum[2]>=2)return;
+      Handle_Simulate_Ctrl_key(KEY_MINUS);
       return;
     }
   //更新记录点
-  pCenter = cCenter;
+  //pCenter = cCenter;
 }
 //模拟按键
 void MyHandle::Handle_Simulate_key(int file, int keytype,unsigned int keycode, int keyvalue)
@@ -390,8 +419,33 @@ void MyHandle::Handle_Simulate_key(int file, int keytype,unsigned int keycode, i
   event.value = 0;
   write(file,&event,sizeof(event));
 }
-void MyHandle::Handle_Simulate_Ctrl_key(int file,int keytype,unsigned int keycode)
+void MyHandle::Handle_Simulate_Ctrl_key(unsigned int keycode)
 {
+  Handle_Simulate_KeyDown(k_fd, EV_KEY,KEY_LEFTCTRL,1);
+  //先发送一个 CTRL 按下去的事件
+  //event.type = EV_KEY;
+  //event.value = 1;
+  //event.code = KEY_LEFTCTRL;
+  //gettimeofday(&event.time,0);
+  //write(k_fd,&event,sizeof(event)) ;
+  //event.type = EV_SYN;
+  //event.code = SYN_REPORT;
+  //event.value = 0;
+  //write(k_fd, &event, sizeof(event));
+  //先发送一个 按键 按下去的事件
+  Handle_Simulate_key(k_fd,EV_KEY,keycode,1);
+  //发送一个 释放 CTRL 的事件
+  Handle_Simulate_KeyDown(k_fd, EV_KEY,KEY_LEFTCTRL,0);
+  //memset(&event, 0, sizeof(event));
+  //gettimeofday(&event.time, NULL);
+  //event.type = EV_KEY;
+  //event.code = KEY_LEFTCTRL;
+  //event.value = 0;
+  //write(k_fd, &event, sizeof(event));
+  //event.type = EV_SYN;
+  //event.code = SYN_REPORT;
+  //event.value = 0;
+  //write(fd, &event, sizeof(event));
 }
 //模拟鼠标
 void MyHandle::Handle_Simulate_Mouse()
@@ -400,9 +454,30 @@ void MyHandle::Handle_Simulate_Mouse()
   //处理抖动
   if(offset[0]==offset[1]==1)return;
   //移动鼠标
-  Handle_Simulate_key( fd, EV_REL, REL_X, abs(offset[0]>6 ? -7 : 1-abs(offset[0]) )*offset[0] );
-  Handle_Simulate_key( fd, EV_REL, REL_Y, abs(offset[1]>5 ? 5 : 1 )*offset[1] );
-  
+  Handle_Simulate_key( fd, EV_REL, REL_X, ( abs( offset[0] ) > 6 ? -6 : ( 1-abs(offset[0]) ) )*offset[0] );
+  Handle_Simulate_key( fd, EV_REL, REL_Y, abs(offset[1]>5 ? 4 : 1 )*offset[1] );
+}
+//抓取移动
+void MyHandle::Handle_Simulate_Mouse_Grab()
+{
+  //持续点击
+  if(++eNum[3]==1)
+    Handle_Simulate_KeyDown( fd, EV_KEY, BTN_LEFT, 1 );
+  //移动
+  Handle_Simulate_Mouse();
+}
+void MyHandle::Handle_Simulate_KeyDown(int file, int keytype,unsigned int keycode, int keyvalue)
+{
+  event.type = keytype;
+  event.code = keycode;
+  event.value = keyvalue;
+  gettimeofday(&event.time,0);
+  write(file,&event,sizeof(event));
+  memset(&event, 0, sizeof(event));
+  event.type = EV_SYN;
+  event.code = SYN_REPORT;
+  event.value = 0;
+  write(file,&event,sizeof(event));
 }
 //进程通信(暂时废弃)
 void MyHandle::Handle_Pipe()
