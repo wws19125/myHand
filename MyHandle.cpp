@@ -156,6 +156,7 @@ void MyHandle::Handle_Contours(IplImage *img)
       if(bound.x <= 7 || bound.y <= 7 || bound.x + bound.width >= size.width-6 || bound.y + bound.height >= size.height-6 )continue;      
       //绘制轮廓
       //cvDrawContours( src, contours, cvScalar(255,150, 100, 0 ), cvScalar( 255, 0, 0, 0 ), 1, 3, 8, cvPoint( 0, 0 ) );
+
       //采用svm训练数据进行识别
       Handle_SVM();
       return;
@@ -176,7 +177,6 @@ void MyHandle::Handle_Contours(IplImage *img)
 	      t = j;
 	    }
 	}
-      //cout<<"==========="<<t<<"----------"<<match<<endl;
       if(match>0.2)continue;
       //get the current position
       cCenter = cvPoint(bound.x, bound.y + bound.height );
@@ -192,11 +192,9 @@ void MyHandle::Handle_Contours(IplImage *img)
       cvInitFont(font,CV_FONT_HERSHEY_SIMPLEX,1.0f,1.0f,0,2,8);
       cvPutText(src, Num[((int)t-1)], cvPoint(bound.x, bound.y), font, CV_RGB(255,0,0));
       //the flag of moving
-      //cout<<"++++++++++++++++++"<<t<<endl;
       if( ((int)t - 5 == 0 ) || ( (int)t - 8 == 0 ) )
 	{
 	  flag = 1;
-	  //cout<<"--------flag"<<flag<<endl;
 	}
       else
 	if ((int)t - 10 == 0 )
